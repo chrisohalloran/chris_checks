@@ -93,6 +93,12 @@ defmodule Mix.Tasks.ChrisChecks.InstallTest do
     assert install(root, ["--check"]) == ["chris_checks templates are current"]
   end
 
+  test "the fixture consumer's installed files are current" do
+    fixture = Path.expand("../../fixtures/consumer", __DIR__)
+    Install.run(["--check", "--root", fixture])
+    assert messages() == ["chris_checks templates are current"]
+  end
+
   test "--check fails only when a managed file drifts", %{tmp_dir: root} do
     install(root, ["--app-dir", "."])
     assert install(root, ["--check"]) == ["chris_checks templates are current"]
