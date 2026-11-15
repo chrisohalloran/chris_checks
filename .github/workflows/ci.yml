@@ -37,5 +37,6 @@ jobs:
         run: mix test --include consumer
       - name: The fixture consumer as a git dependency at this commit
         run: |
+          git branch --force consumer-under-test HEAD
           CHRIS_CHECKS_GIT_URL="$GITHUB_WORKSPACE" CHRIS_CHECKS_GIT_REF="$(git rev-parse HEAD)" \
             mix test test/consumer_test.exs --include consumer
