@@ -58,12 +58,13 @@ defmodule ChrisChecks.ScriptHardeningTest do
       File.ln_s!(System.find_executable(name), Path.join(bin, name))
     end
 
-    beam =
-      System.get_env("PATH")
-      |> String.split(":")
-      |> Enum.filter(&String.contains?(&1, ".beam"))
+    tool_dirs =
+      for name <- ~w(mix elixir erl),
+          path = System.find_executable(name),
+          uniq: true,
+          do: Path.dirname(path)
 
-    Enum.join([bin | beam], ":")
+    Enum.join([bin | tool_dirs], ":")
   end
 
   test "format-edited rejects a path that escapes the app with ..", %{
