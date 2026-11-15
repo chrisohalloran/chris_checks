@@ -66,6 +66,10 @@ defmodule ChrisChecks.ConsumerTest do
     app = Path.join(root, app_dir)
     File.mkdir_p!(Path.dirname(app))
     File.cp_r!(@fixture, app)
+
+    for installed <- ~w(scripts .claude .cursor CLAUDE.md AGENTS.md .sobelow-conf),
+        do: File.rm_rf!(Path.join(app, installed))
+
     File.write!(Path.join(root, ".gitignore"), "_build/\ndeps/\nmix.lock\n.stdin\n.stderr\n")
     ok!(env, root, "git init -q -b #{branch} && git add -A && #{commit()} -qm fixture")
     app

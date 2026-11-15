@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "bash scripts/format-edited.sh"
+      }
+    ],
+    "stop": [
+      {
+        "command": "bash scripts/verify.sh --fast --hook"
+      }
+    ]
+  }
+}

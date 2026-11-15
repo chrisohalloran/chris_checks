@@ -40,3 +40,26 @@ jobs:
           git branch --force consumer-under-test HEAD
           CHRIS_CHECKS_GIT_URL="$GITHUB_WORKSPACE" CHRIS_CHECKS_GIT_REF="$(git rev-parse HEAD)" \
             mix test test/consumer_test.exs --include consumer
+
+  verify-fixture-postgres:
+    name: Reusable verify.yml (version file, postgres)
+    uses: ./.github/workflows/verify.yml
+    with:
+      working-directory: test/fixtures/consumer
+      verify-script: test/fixtures/consumer/scripts/verify.sh
+      postgres: true
+      env: |
+        FIXTURE_FLAG=from-caller
+      setup: |
+        test "$FIXTURE_FLAG" = from-caller
+        test "$MIX_ENV" = test
+        psql -c 'select 1' >/dev/null
+
+  verify-fixture-versions:
+    name: Reusable verify.yml (explicit versions)
+    uses: ./.github/workflows/verify.yml
+    with:
+      elixir-version: "1.20.4"
+      otp-version: "27.3.4.18"
+      working-directory: test/fixtures/consumer
+      verify-script: test/fixtures/consumer/scripts/verify.sh
