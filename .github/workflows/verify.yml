@@ -1,0 +1,125 @@
+name: verify
+
+on:
+  workflow_call:
+    inputs:
+      elixir-version:
+        description: Elixir version. Leave empty (with otp-version) to read version-file.
+        type: string
+        default: ""
+      otp-version:
+        description: OTP version. Leave empty (with elixir-version) to read version-file.
+        type: string
+        default: ""
+      version-file:
+        description: setup-beam version file, used when the versions are empty.
+        type: string
+        default: .tool-versions
+      working-directory:
+        description: The Mix project, relative to the repository root.
+        type: string
+        default: .
+      verify-script:
+        description: verify.sh, relative to the repository root.
+        type: string
+        default: scripts/verify.sh
+      postgres:
+        description: Start a postgres service and export PGHOST, PGUSER, PGPASSWORD and DATABASE_URL.
+        type: boolean
+        default: false
+      postgres-image:
+        type: string
+        default: postgres:17
+      env:
+        description: Extra environment, one KEY=VALUE per line (not for secrets).
+        type: string
+        default: ""
+      setup:
+        description: Shell run in working-directory after deps.get, before verify.sh (e.g. mix ecto.create).
+        type: string
+        default: ""
+      runs-on:
+        type: string
+        default: ubuntu-24.04
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: scripts/verify.sh --full
+    runs-on: ${{ inputs.runs-on }}
+    services:
+      postgres:
+        image: ${{ inputs.postgres && inputs.postgres-image || '' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up BEAM from the given versions
+        if: inputs.elixir-version != '' && inputs.otp-version != ''
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: ${{ inputs.elixir-version }}
+          otp-version: ${{ inputs.otp-version }}
+      - name: Set up BEAM from the version file
+        if: inputs.elixir-version == '' || inputs.otp-version == ''
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: ${{ inputs.version-file }}
+          version-type: strict
+      - name: Export the caller's environment
+        env:
+          EXTRA_ENV: ${{ inputs.env }}
+          POSTGRES: ${{ inputs.postgres }}
+        run: |
+          if [ "$POSTGRES" = true ]; then
+            {
+              echo "PGHOST=localhost"
+              echo "PGPORT=5432"
+              echo "PGUSER=postgres"
+              echo "PGPASSWORD=postgres"
+              echo "DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres"
+            } >>"$GITHUB_ENV"
+          fi
+          while IFS= read -r line; do
+            [ -n "${line// /}" ] || continue
+            if [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+              echo "env input: expected KEY=VALUE, got: $line" >&2
+              exit 1
+            fi
+            echo "$line" >>"$GITHUB_ENV"
+          done <<<"$EXTRA_ENV"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ inputs.working-directory }}/deps
+            ${{ inputs.working-directory }}/_build
+          key: ${{ runner.os }}-verify-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-${{ hashFiles(inputs.version-file, format('{0}/mix.lock', inputs.working-directory)) }}
+          restore-keys: ${{ runner.os }}-verify-${{ inputs.otp-version }}-${{ inputs.elixir-version }}-
+      - run: mix deps.get
+      - name: Caller setup
+        if: inputs.setup != ''
+        env:
+          SETUP: ${{ inputs.setup }}
+        run: bash -eo pipefail -c "$SETUP"
+      - name: scripts/verify.sh --full
+        env:
+          VERIFY_SCRIPT: ${{ inputs.verify-script }}
+        run: bash "$GITHUB_WORKSPACE/$VERIFY_SCRIPT" --full
