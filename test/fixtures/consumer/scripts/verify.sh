@@ -14,6 +14,8 @@
 # --check-unused, the whole mix test suite.
 # --hook: read a stop-hook JSON payload on stdin. On failure Claude Code gets
 # exit 2 with the log on stderr; Cursor gets {"followup_message": ...} on stdout.
+# A payload that cannot be parsed (malformed JSON, or Elixir without the JSON
+# module) exits 2 before any check runs.
 #
 # Optional scripts/verify.local.sh may define extra_fast and extra_full
 # (run after each tier) and set any of the variables below.
@@ -250,31 +252,38 @@ doctor() {
   [ "$ok" = true ]
 }
 
-json_eval() {
-  local code="$1"
-  elixir -e "
-    data =
+# Prints "<kind> <true|false>": kind is skip, cursor, claude, or other, and the
+# flag is the payload's stop_hook_active. Returns 2 when the payload is not a
+# JSON object or Elixir cannot decode it.
+parse_hook() {
+  local out status
+  set +e
+  out="$(
+    printf '%s' "$1" | elixir -e '
       case JSON.decode(IO.read(:stdio, :eof)) do
-        {:ok, %{} = map} -> map
-        _ -> %{}
+        {:ok, %{} = data} ->
+          kind =
+            cond do
+              data["status"] in ["aborted", "error"] -> "skip"
+              data["cursor_version"] != nil or Map.has_key?(data, "workspace_roots") -> "cursor"
+              data["hook_event_name"] != nil or data["session_id"] != nil -> "claude"
+              true -> "other"
+            end
+
+          IO.puts(kind <> " " <> to_string(data["stop_hook_active"] == true))
+
+        _ ->
+          System.halt(2)
       end
-    $code
-  " 2>/dev/null || true
-}
-
-hook_kind() {
-  printf '%s' "$1" | json_eval '
-    cond do
-      data["status"] in ["aborted", "error"] -> IO.puts("skip")
-      data["cursor_version"] != nil or Map.has_key?(data, "workspace_roots") -> IO.puts("cursor")
-      data["hook_event_name"] != nil or data["session_id"] != nil -> IO.puts("claude")
-      true -> :ok
-    end
-  '
-}
-
-stop_hook_active() {
-  [ "$(printf '%s' "$1" | json_eval 'IO.write(to_string(data["stop_hook_active"] == true))')" = true ]
+    '
+  )"
+  status=$?
+  set -e
+  if [ "$status" -ne 0 ] || [ -z "$out" ]; then
+    echo "scripts/verify.sh --hook could not parse the hook payload, so it is blocking. Stdin must be a JSON object, which needs Elixir 1.18 or newer (the JSON module)." >&2
+    return 2
+  fi
+  printf '%s\n' "$out"
 }
 
 report_failure() {
@@ -295,7 +304,7 @@ ${output: -12000}"
 }
 
 main() {
-  local tier hook=false hook_input="" kind="" output status
+  local tier hook=false hook_input="" kind="" active="" parsed="" output status
   case "${1:-}" in
     --doctor)
       [ "$#" -eq 1 ] || { usage; exit 2; }
@@ -318,14 +327,16 @@ main() {
   esac
   if [ "$hook" = true ]; then
     hook_input="$(cat)"
-  fi
-  if [ -n "$hook_input" ]; then
-    kind="$(hook_kind "$hook_input")"
+    if ! parsed="$(parse_hook "$hook_input")"; then
+      exit 2
+    fi
+    kind="${parsed%% *}"
+    active="${parsed##* }"
   fi
   if [ "$kind" = "skip" ]; then
     exit 0
   fi
-  if [ "$kind" = "claude" ] && stop_hook_active "$hook_input"; then
+  if [ "$kind" = "claude" ] && [ "$active" = "true" ]; then
     exit 0
   fi
   if [ -n "$kind" ]; then
