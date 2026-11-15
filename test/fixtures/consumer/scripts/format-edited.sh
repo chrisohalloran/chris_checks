@@ -13,6 +13,29 @@ if [ -f "$ROOT/scripts/verify.local.sh" ]; then
 fi
 APP="$ROOT/$APP_DIR"
 
+# Physical path. realpath on Linux and macOS 13+; otherwise walk symlinks and
+# take pwd -P, which still collapses "..".
+resolve_path() {
+  local path="$1" dir name link hops=0
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$path"
+    return
+  fi
+  while [ -L "$path" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 20 ] || return 1
+    link="$(readlink "$path")"
+    case "$link" in
+      /*) path="$link" ;;
+      *) path="$(dirname -- "$path")/$link" ;;
+    esac
+  done
+  dir="$(dirname -- "$path")"
+  name="$(basename -- "$path")"
+  dir="$(cd -- "$dir" && pwd -P)" || return 1
+  printf '%s/%s\n' "$dir" "$name"
+}
+
 if ! command -v mix >/dev/null 2>&1; then
   echo "mix is not on PATH; install Elixir" >&2
   exit 2
@@ -45,13 +68,16 @@ case "$file" in
   /*) ;;
   *) file="$ROOT/$file" ;;
 esac
+[ -f "$file" ] || exit 0
+# Resolve before the prefix check, so "$APP/../x.ex" is outside and is not formatted.
+file="$(resolve_path "$file")"
+app="$(resolve_path "$APP")"
 case "$file" in
-  "$APP"/*) ;;
+  "$app"/*) ;;
   *) exit 0 ;;
 esac
-[ -f "$file" ] || exit 0
 
-cd "$APP"
+cd "$app"
 if ! mix format "$file"; then
   echo "mix format failed for $file" >&2
   exit 2
