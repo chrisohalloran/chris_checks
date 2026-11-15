@@ -123,6 +123,45 @@ may set those variables and define `extra_fast` and `extra_full` functions; the
 script itself is never forked. The scripts need Elixir 1.18+ (they parse hook
 JSON with Elixir's `JSON` module) and nothing else.
 
+## CI: the reusable workflow
+
+`.github/workflows/verify.yml` checks out the caller, sets up Elixir/OTP,
+restores the `deps`/`_build` cache, runs `mix deps.get`, and then
+`scripts/verify.sh --full`, so CI runs the same list as the stop hook:
+
+```yaml
+# .github/workflows/ci.yml in a consumer
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: chrisohalloran/chris_checks/.github/workflows/verify.yml@v0.1.0
+    with:
+      elixir-version: "1.20.4"
+      otp-version: "27.3.4.18"
+      postgres: true
+      setup: mix ecto.create
+```
+
+| Input | Default | |
+| --- | --- | --- |
+| `elixir-version`, `otp-version` | empty | both empty: read `version-file` |
+| `version-file` | `.tool-versions` | |
+| `working-directory` | `.` | the Mix project, e.g. `apps/my_app` |
+| `verify-script` | `scripts/verify.sh` | relative to the repository root |
+| `postgres` | `false` | starts `postgres-image` (`postgres:17`) and exports `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `DATABASE_URL` (user and password `postgres`, Phoenix's test defaults) |
+| `env` | empty | extra `KEY=VALUE` lines (not for secrets) |
+| `setup` | empty | shell run in `working-directory` after `deps.get` |
+| `runs-on` | `ubuntu-24.04` | |
+
+`MIX_ENV` is `test` throughout. This repository's own CI calls the workflow
+against `test/fixtures/consumer` with both version styles and with postgres.
+
 ## Boundary
 
 [Boundary] is a compiler, so it must be a direct dependency of the consumer,
