@@ -1,0 +1,10 @@
+[
+  exit: "medium",
+  format: "txt",
+  ignore: [],
+  ignore_files: [],
+  private: false,
+  skip: true,
+  threshold: "medium",
+  verbose: false
+]
